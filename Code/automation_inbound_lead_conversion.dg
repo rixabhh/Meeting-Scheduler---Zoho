@@ -1,0 +1,132 @@
+/*
+    Function: automation_inbound_lead_conversion
+    Arguments: lead_id (Int)
+    Return: String
+*/
+
+lead_id_long = lead_id.toLong();
+lead_record = zoho.crm.getRecordById("Leads", lead_id_long);
+
+// Step 0: Trigger Gate & Idempotency
+if(lead_record.get("Booking_Status") == "Success")
+{
+    return "Ignored: Booking already successful.";
+}
+
+pref_time_str = lead_record.get("Preferred_Meeting_Time"); 
+if(pref_time_str == null)
+{
+    update_map = Map();
+    update_map.put("Booking_Failure_Reason", "Missing Data: Preferred Meeting Time");
+    update_map.put("Booking_Status", "Failed");
+    zoho.crm.updateRecord("Leads", lead_id_long, update_map);
+    return "Error: No Preferred Meeting Time.";
+}
+
+// Start/End Calculation
+pref_time = pref_time_str.toTime("yyyy-MM-dd'T'HH:mm:ss"); 
+end_time = pref_time.addMinutes(30);
+
+// Step 1: Routing
+route_details = this.utils_get_lead_bucket(lead_id_long);
+if(route_details.containKey("error"))
+{
+    update_map = Map();
+    update_map.put("Booking_Failure_Reason", "No Logic Matched");
+    update_map.put("Booking_Status", "Failed");
+    zoho.crm.updateRecord("Leads", lead_id_long, update_map);
+    return "Error: Routing failed.";
+}
+
+group_name = route_details.get("group_name");
+pipeline_name = route_details.get("pipeline");
+bucket_name = route_details.get("bucket");
+rr_key = route_details.get("rr_variable_key");
+
+// Update Bucket on Lead
+zoho.crm.updateRecord("Leads", lead_id_long, {"Assigned_Bucket": bucket_name});
+
+// Step 2: Get Candidate (Read Only)
+assignee_details = this.utils_get_rr_candidate(group_name, rr_key);
+
+if(assignee_details.containKey("error"))
+{
+    update_map = Map();
+    update_map.put("Booking_Failure_Reason", "No Active Reps");
+    update_map.put("Booking_Status", "Failed");
+    zoho.crm.updateRecord("Leads", lead_id_long, update_map);
+    return "Error: No reps found.";
+}
+
+assignee_email = assignee_details.get("email");
+assignee_id = assignee_details.get("id");
+
+// Step 3: Check Availability
+is_free = this.utils_check_google_availability(assignee_email, pref_time);
+
+if(is_free == false)
+{
+    // Busy Logic
+    update_map = Map();
+    update_map.put("Booking_Failure_Reason", "Rep Busy (" + assignee_email + ")");
+    update_map.put("Booking_Status", "Failed");
+    zoho.crm.updateRecord("Leads", lead_id_long, update_map);
+    return "Failed: Rep Busy";
+}
+
+// Step 4: Booking (If Free)
+
+// A. Book G-Cal
+event_map = Map();
+event_map.put("summary", lead_record.get("Company") + " - Intro Call");
+event_map.put("description", "Segment: " + route_details.get("bucket") + "\nValue: " + lead_record.get("Order_Value"));
+event_map.put("start", {"dateTime": pref_time_str}); 
+event_map.put("end", {"dateTime": end_time.toString("yyyy-MM-dd'T'HH:mm:ss")});
+event_map.put("attendees", {{"email": assignee_email}, {"email": lead_record.get("Email")}});
+
+calendar_response = invokeurl
+[
+    url :"https://www.googleapis.com/calendar/v3/calendars/primary/events"
+    type :POST
+    parameters: event_map.toString()
+    headers: {"Content-Type": "application/json"}
+    connection:"google_calendar_conn"
+];
+
+event_id = calendar_response.get("id");
+
+if(event_id == null)
+{
+    return "Error: Google Calendar API Failed: " + calendar_response;
+}
+
+// B. Convert Lead & Create Deal
+search_response = zoho.crm.searchRecords("Contacts", "(Email:equals:" + lead_record.get("Email") + ")");
+existing_contact_id = null;
+if(search_response.size() > 0)
+{
+    existing_contact_id = search_response.get(0).get("id");
+}
+
+convert_map = Map();
+convert_map.put("overwrite", true);
+convert_map.put("notify_lead_owner", true);
+convert_map.put("notify_new_entity_owner", true);
+convert_map.put("assign_to", assignee_id); 
+
+// Deal Details
+deal_map = Map();
+deal_map.put("Deal_Name", lead_record.get("Company") + " - Inbound Deal");
+deal_map.put("Pipeline", pipeline_name);
+deal_map.put("Stage", "Qualification");
+deal_map.put("Closing_Date", zoho.currentdate.addMonth(1));
+// Note: 'assign_to' at top level handles ownership.
+
+convert_map.put("Deals", deal_map);
+
+conversion_response = zoho.crm.convertLead(lead_id_long, convert_map);
+
+// Step 5: Update Indexes
+this.utils_update_rr_index(rr_key);
+
+return "Success: Booked & Converted. Rep: " + assignee_email;

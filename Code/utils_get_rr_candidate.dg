@@ -1,0 +1,92 @@
+/*
+    Function: utils_get_rr_candidate
+    Arguments: group_name (String), variable_name (String)
+    Return: Map (user_details)
+*/
+
+// 1. Fetch Users in the Group
+groups_response = invokeurl
+[
+    url :"https://www.zohoapis.com/crm/v2/settings/groups"
+    type :GET
+    connection:"zohocrm_conn"
+];
+groups = groups_response.get("groups");
+target_group_id = "";
+for each g in groups
+{
+    if(g.get("name") == group_name)
+    {
+        target_group_id = g.get("id");
+    }
+}
+
+if(target_group_id == "")
+{
+    error_map = Map();
+    error_map.put("error", "Group not found: " + group_name);
+    return error_map;
+}
+
+// Get Users in Group
+group_details = invokeurl
+[
+    url :"https://www.zohoapis.com/crm/v2/settings/groups/" + target_group_id
+    type :GET
+    connection:"zohocrm_conn"
+];
+
+// Extract Active Users only
+users_list = group_details.get("groups").get(0).get("sources");
+active_users = List();
+
+for each u in users_list
+{
+    if(u.get("type") == "user") 
+    {
+        user_map = Map();
+        user_map.put("id", u.get("source").get("id"));
+        user_map.put("name", u.get("source").get("name"));
+        active_users.add(user_map);
+    }
+}
+
+group_size = active_users.size();
+
+if(group_size == 0)
+{
+     error_map = Map();
+     error_map.put("error", "No users in group");
+     return error_map;
+}
+
+// 2. Get Current RR Index (Read Only)
+// Note: If variable doesn't exist, default to 0
+current_index_obj = zoho.crm.getGlobalVariable(variable_name);
+if(current_index_obj == null)
+{
+    current_index = 0;
+}
+else
+{
+    current_index = current_index_obj.toNumber();
+}
+
+// 3. Calculate Candidate
+candidate_index = current_index % group_size;
+
+candidate_user = active_users.get(candidate_index);
+candidate_id = candidate_user.get("id");
+
+// Get full user details to get email
+user_details_api = invokeurl
+[
+    url :"https://www.zohoapis.com/crm/v2/users/" + candidate_id
+    type :GET
+    connection:"zohocrm_conn"
+];
+user_email = user_details_api.get("users").get(0).get("email");
+
+candidate_user.put("email", user_email);
+
+return candidate_user;

@@ -1,0 +1,67 @@
+/*
+    Function: utils_get_lead_bucket
+    Arguments: lead_id (Int)
+    Return: Map (bucket_details) or Error
+*/
+
+lead_details = zoho.crm.getRecordById("Leads", lead_id);
+
+/*
+    HLD Section 3: Buckets / Teams
+    Inputs needed: Service Type (Segment), Order Value
+*/
+
+service_type = lead_details.get("Segment"); // "Ship", "Warehousing", etc.
+order_value = ifnull(lead_details.get("Order_Value"), 0.0).toDecimal();
+
+bucket = "";
+pipeline = "";
+group_name = "";
+rr_variable_key = "";
+
+// LOGIC START
+
+// 1. LST Ship: Shipping only (any value)
+if(service_type.containsIgnoreCase("Ship") && !service_type.containsIgnoreCase("Fulfill"))
+{
+    bucket = "LST-Ship";
+    pipeline = "Ship";
+    group_name = "LST_Ship_Team";
+    rr_variable_key = "rr_index_lst_ship";
+}
+// 2. Warehousing Involved
+else 
+{
+    // Threshold Check: 3000 INR
+    if(order_value < 3000)
+    {
+        bucket = "LST-Fulfil";
+        pipeline = "SME 2.0";
+        group_name = "LST_Fulfil_Team";
+        rr_variable_key = "rr_index_lst_fulfil";
+    }
+    else
+    {
+        // > 3000
+        bucket = "FST";
+        pipeline = "Enterprise 2.0";
+        group_name = "FST_Team";
+        rr_variable_key = "rr_index_fst";
+    }
+}
+
+// Validation
+if(group_name == "")
+{
+    error_map = Map();
+    error_map.put("error", "No Logic Matched");
+    return error_map;
+}
+
+result_map = Map();
+result_map.put("bucket", bucket);
+result_map.put("pipeline", pipeline);
+result_map.put("group_name", group_name);
+result_map.put("rr_variable_key", rr_variable_key);
+
+return result_map;

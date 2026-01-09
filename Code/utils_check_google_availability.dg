@@ -1,0 +1,44 @@
+/*
+    Function: utils_check_google_availability
+    Arguments: email (String), start_time (DateTime)
+    Return: Boolean
+*/
+
+// 1. Calculate End Time (Start + 30 mins)
+end_time = start_time.addMinutes(30);
+
+// Format times to RFC3339 string: "yyyy-MM-dd'T'HH:mm:ssZ"
+start_str = start_time.toString("yyyy-MM-dd'T'HH:mm:ssZ");
+end_str = end_time.toString("yyyy-MM-dd'T'HH:mm:ssZ");
+
+// 2. Prepare API Body
+param_map = Map();
+param_map.put("timeMin", start_str);
+param_map.put("timeMax", end_str);
+param_map.put("items", {{"id": email}});
+
+// 3. Call Google Calendar API
+response = invokeurl
+[
+    url :"https://www.googleapis.com/calendar/v3/freeBusy"
+    type :POST
+    parameters: param_map.toString()
+    headers: {"Content-Type": "application/json"}
+    connection:"google_calendar_conn"
+];
+
+// 4. Parse Response
+calendars = response.get("calendars");
+user_cal = calendars.get(email);
+busy_list = user_cal.get("busy");
+
+if(busy_list.size() > 0)
+{
+    // Busy
+    return false;
+}
+else
+{
+    // Free
+    return true;
+}

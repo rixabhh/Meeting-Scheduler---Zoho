@@ -1,0 +1,43 @@
+/*
+    Function: utils_update_rr_index
+    Arguments: variable_name (String)
+    Return: String (Status)
+*/
+
+// 1. Get Current
+current_value_obj = zoho.crm.getGlobalVariable(variable_name);
+if(current_value_obj == null)
+{
+    current_val = 0;
+}
+else
+{
+    current_val = current_value_obj.toNumber();
+}
+
+// 2. Increment
+new_val = current_val + 1;
+
+// Overflow protection
+if(new_val > 50000)
+{
+    new_val = 0;
+}
+
+// 3. Update via API
+var_update_payload = Map();
+var_update_payload.put("value", new_val.toString());
+var_update_payload.put("api_name", variable_name); 
+
+param_map = Map();
+param_map.put("variables", {var_update_payload});
+
+update_response = invokeurl
+[
+    url :"https://www.zohoapis.com/crm/v2/orgVariables"
+    type :PUT
+    parameters: param_map.toString()
+    connection:"zohocrm_conn"
+];
+
+return "Updated " + variable_name + " to " + new_val;
