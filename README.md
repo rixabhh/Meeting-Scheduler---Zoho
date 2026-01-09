@@ -20,7 +20,7 @@ The **Zero-Touch Meeting Scheduler** eliminates the manual bottleneck between an
 The core logic resides here. These scripts must be installed as **Custom Functions** in Zoho CRM.
 
 * **`automation_inbound_lead_conversion.dg`**: The main orchestrator. Triggers on Workflow Rules, calls utilities, and executes the booking/conversion.
-* **`utils_get_lead_bucket.dg`**: Routing logic. Classifies leads into `LST-Ship`, `LST-Fulfil`, or `FST` based on Segment and Order Value.
+* **`utils_get_lead_bucket.dg`**: Routing logic. Classifies leads into `LST-Ship`, `LST-Fulfil`, or `FST` based on Segment and Order Volume.
 * **`utils_get_rr_candidate.dg`**: Fetches the next AE from the appropriate Zoho Group using a round-robin pointer.
 * **`utils_check_google_availability.dg`**: Connects to Google Calendar API to verify if the selected AE is free at the requested time.
 * **`utils_update_rr_index.dg`**: Updates the Global Variable pointer after a successful assignment to ensure fair distribution.
